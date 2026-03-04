@@ -13,7 +13,7 @@ image = (
     modal.Image.debian_slim()
     .pip_install(
         "python-telegram-bot",
-        "openai",
+        "google-genai",
         "pyairtable",
         "playwright",
         "pandas",
@@ -24,11 +24,14 @@ image = (
     .run_commands("playwright install-deps chromium")
 )
 
-# Function to process intent with OpenAI
+# Function to process intent with Gemini
 @app.function(image=image, secrets=[modal.Secret.from_name("bot-secrets")])
 async def process_intent(user_text):
-    from openai import OpenAI
-    client = OpenAI(api_key=os.environ["CHATGPT_API_KEY"])
+    from google import genai
+    import json
+    import os
+    
+    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     
     SYSTEM_PROMPT = """
     You are a friendly, professional AI Lead Generation Expert. 
@@ -50,25 +53,25 @@ async def process_intent(user_text):
     - If you trigger a SCRAPE or SEARCH action, include a conversational "reply" telling them what you're doing.
     - If it's just a "CHAT" action, put your entire response in the "reply" field.
 
-    OUTPUT FORMAT (JSON ONLY):
-    {"action": "SCRAPE" | "SEARCH" | "CHAT", "params": {...}, "reply": "Your conversational response here"}
+    OUTPUT FORMAT:
+    Return ONLY a JSON object. No markdown formatting. Example:
+    {"action": "SCRAPE", "params": {"service": "plumbers", "city": "Miami", "count": 5}, "reply": "Sure! I'll find 5 plumbers in Miami for you."}
     """
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_text}
-            ],
-            response_format={"type": "json_object"}
+        prompt = f"{SYSTEM_PROMPT}\n\nUser Message: {user_text}"
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
         )
-        result = json.loads(response.choices[0].message.content)
+        raw_text = response.text.strip().replace('```json', '').replace('```', '')
+        result = json.loads(raw_text)
+        
         # Ensure 'reply' always exists
         if "reply" not in result:
-            result["reply"] = "I'm on it! Let' me see what I can do."
+            result["reply"] = "I'm on it! Let's see what I can do."
         return result
     except Exception as e:
-        print(f"OpenAI Error: {e}")
+        print(f"Gemini Error: {e}")
         return {"action": "CHAT", "reply": "I'm having a bit of trouble processing that. Could you try again?"}
 
 # Function to scrape Google Maps
@@ -172,13 +175,41 @@ async def scrape_leads(service, city, count):
                         website_el = await entry.query_selector('a[aria-label*="website"], a[aria-label*="Website"]')
                         if website_el: website = await website_el.get_attribute('href')
 
+                        # Extract Email
+                        email = "N/A"
+                        if website != "N/A":
+                            try:
+                                import re
+                                site_page = await browser.new_page()
+                                await site_page.goto(website, wait_until="domcontentloaded", timeout=15000)
+                                mailtos = await site_page.evaluate('''() => {
+                                    return Array.from(document.querySelectorAll('a[href^="mailto:"]')).map(a => a.href.replace('mailto:', ''));
+                                }''')
+                                if mailtos and len(mailtos) > 0:
+                                    email = mailtos[0].split('?')[0]
+                                else:
+                                    content = await site_page.inner_text("body")
+                                    email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+                                    emails = re.findall(email_pattern, content)
+                                    valid_emails = [e for e in emails if not e.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'))]
+                                    if valid_emails:
+                                        email = valid_emails[0]
+                            except Exception as e:
+                                print(f"Error scraping website {website}: {e}")
+                            finally:
+                                await site_page.close()
+
+                        if website == "N/A" or email == "N/A":
+                            print(f"Skipping {name} - Missing website or email.")
+                            continue
+
                         leads.append({
                             "name": name, "service": service, "address": address,
-                            "website": website, "rating": rating, 
+                            "website": website, "email": email, "rating": rating, 
                             "date_created": datetime.now().strftime("%Y-%m-%d"),
                             "status": "lead"
                         })
-                        print(f"✅ Found: {name}")
+                        print(f"✅ Found: {name} (Email: {email})")
                     except Exception as e: 
                         continue
                 
@@ -215,6 +246,7 @@ def airtable_action(action_type, data):
                 "Service": str(lead.get("service") or "Unknown"),
                 "Address": str(lead.get("address") or "N/A"),
                 "Website": str(lead.get("website") or "N/A"),
+                "Email": str(lead.get("email") or "N/A"),
                 "Rating": float(lead.get("rating")) if lead.get("rating") != "N/A" and lead.get("rating") else 0.0,
                 "Date Created": lead.get("date_created") or datetime.now().strftime("%Y-%m-%d")
             })

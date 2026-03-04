@@ -1,6 +1,7 @@
 import asyncio
 import csv
 import os
+import re
 from datetime import datetime
 from playwright.async_api import async_playwright
 
@@ -93,16 +94,44 @@ async def scrape_google_maps(service, city, count):
                     if website_el:
                         website = await website_el.get_attribute('href')
 
+                    # Extract Email
+                    email = "N/A"
+                    if website != "N/A":
+                        try:
+                            site_page = await browser.new_page()
+                            await site_page.goto(website, wait_until="domcontentloaded", timeout=15000)
+                            mailtos = await site_page.evaluate('''() => {
+                                return Array.from(document.querySelectorAll('a[href^="mailto:"]')).map(a => a.href.replace('mailto:', ''));
+                            }''')
+                            if mailtos and len(mailtos) > 0:
+                                email = mailtos[0].split('?')[0]
+                            else:
+                                content = await site_page.inner_text("body")
+                                email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+                                emails = re.findall(email_pattern, content)
+                                valid_emails = [e for e in emails if not e.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'))]
+                                if valid_emails:
+                                    email = valid_emails[0]
+                        except Exception as e:
+                            print(f"Error scraping website {website}: {e}")
+                        finally:
+                            await site_page.close()
+
+                    if website == "N/A" or email == "N/A":
+                        print(f"Skipping {name} - Missing website or email.")
+                        continue
+
                     leads.append({
                         "name": name,
                         "service": service,
                         "address": address,
                         "website": website,
+                        "email": email,
                         "rating": rating,
                         "date_created": datetime.now().strftime("%Y-%m-%d"),
                         "status": "lead"
                     })
-                    print(f"Found: {name} | Rating: {rating} | Address: {address}")
+                    print(f"Found: {name} | Rating: {rating} | Address: {address} | Email: {email}")
                     
                 except Exception as e:
                     print(f"Error parsing entry: {e}")

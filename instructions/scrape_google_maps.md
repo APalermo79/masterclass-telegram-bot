@@ -17,6 +17,7 @@ This workflow searches for businesses on Google Maps based on a service and loca
     - `service` (use the input service)
     - `address`
     - `website`
+    - `email`
     - `rating`
     - `date_created` (current timestamp)
     - `status` (default to "lead")

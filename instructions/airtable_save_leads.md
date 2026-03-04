@@ -14,6 +14,7 @@ The script maps the following fields to Airtable columns:
 - `service` -> `Service`
 - `address` -> `Address`
 - `website` -> `Website`
+- `email` -> `Email`
 - `rating` -> `Rating` (Number/Decimal)
 - `date_created` -> `Date Created` (Date)
 - `status` -> `Status` (Single Select/String)

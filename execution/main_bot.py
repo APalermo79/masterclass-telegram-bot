@@ -1,7 +1,7 @@
 import os
 import json
 import asyncio
-import google.generativeai as genai
+from google import genai
 from telegram import Bot, Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 from dotenv import load_dotenv
@@ -14,8 +14,7 @@ from execution.airtable_search_leads import airtable_search_leads
 load_dotenv()
 
 # Configure Gemini
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel('models/gemini-2.0-flash')
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 SYSTEM_PROMPT = """
 You are a professional Lead Generation AI assistant. 
@@ -36,7 +35,10 @@ Return ONLY a JSON object. Example:
 async def process_message(user_text):
     """Uses Gemini to determine action and parameters."""
     prompt = f"{SYSTEM_PROMPT}\n\nUser Message: {user_text}"
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(
+        model='gemini-2.0-flash',
+        contents=prompt
+    )
     try:
         # Clean up JSON formatting if any
         raw_text = response.text.strip().replace('```json', '').replace('```', '')

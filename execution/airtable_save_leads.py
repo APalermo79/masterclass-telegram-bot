@@ -32,6 +32,7 @@ def airtable_save_leads(leads, base_id, table_name):
             "Service": lead.get("service"),
             "Address": lead.get("address"),
             "Website": lead.get("website"),
+            "Email": lead.get("email"),
             "Rating": float(lead.get("rating")) if lead.get("rating") != "N/A" else 0,
             "Date Created": lead.get("date_created"),
             # "Status": lead.get("status", "lead")
